@@ -5,7 +5,11 @@ module Pipes.Orth.Internal (
   , MS(..)
   , Proxy(..)
   , OrthProxy(..)
+  , X
+  , closed
   ) where
+
+import Data.Void
 
 import Control.Monad
 import Control.Monad.Trans.Class (MonadTrans (lift))
@@ -49,3 +53,7 @@ instance MonadTrans (Proxy a' a b' b) where
         m (fmap ((\proxy -> MS (\m' -> unOrthProxy proxy req res m' e)) . k) mr)
       ))
 
+type X = Void
+
+closed :: X -> a
+closed = Data.Void.absurd
