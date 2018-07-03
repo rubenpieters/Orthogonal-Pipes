@@ -49,12 +49,11 @@ repeatedly plan = construct (forever plan)
 deconstruct :: Proxy a' a b' (Either x b) m -> Plan a' a b' b m x
 deconstruct proxy = Plan (\k ->
   Proxy (\req res m e ->
-    let aux (ReS r) = ReS (r . aux2)
-        aux2 res' xorb fb' = case xorb of
+    let aux res' xorb fb' = case xorb of
           Left x -> unProxy (k x) req res' m e
-          Right b -> res' b (aux . fb')
+          Right b -> res' b ((\(ReS r) -> ReS (r . aux)) . fb')
     in
-      unProxy proxy req (aux2 res) m e
+      unProxy proxy req (aux res) m e
   ))
 
 respond :: a -> Plan x' x a' a m a'
