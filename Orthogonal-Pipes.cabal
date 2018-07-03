@@ -26,6 +26,7 @@ Library
   exposed-modules:     Pipes.Orth
                      , Pipes.Orth.Core
                      , Pipes.Orth.Internal
+                     , Pipes.Orth.Tutorial
   GHC-Options: -O2 -Wall
 
 test-suite tests
