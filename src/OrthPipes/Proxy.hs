@@ -7,7 +7,12 @@ module OrthPipes.Proxy (
   , Proxy(..)
   , (>+>)
   , (+>>)
+
+  , runEffect
+  , fetchResponses
   ) where
+
+import Data.Void
 
 import Unsafe.Coerce
 
@@ -64,3 +69,32 @@ fp +>> q = Proxy (\req res m e ->
   (_c' -> Proxy b' b c' c m) ->
   (_c' -> Proxy a' a c' c m)
 (fb' >+> fc') c' = fb' +>> fc' c'
+
+runEffect :: (Monad m) => Proxy Void () () Void m -> m ()
+runEffect (Proxy proxy) = proxy
+  (\v _ -> absurd v)
+  (\v _ -> absurd v)
+  fixMMS
+  (return ())
+
+fixMMS :: (Monad m) => m (MS m (m a)) -> m a
+fixMMS h = do
+  h' <- h
+  unMS h' fixMMS
+
+fetchResponses :: (Monad m) => Proxy x () () b m -> m [b]
+fetchResponses (Proxy proxy) = proxy
+  (\v f -> fetchResponses'' (f ()))
+  (\b f -> (b :) <$> fetchResponses' (f ()))
+  fixMMS
+  (return [])
+  where
+    fetchResponses' ::
+      (Functor m) => ReS () b (m [b]) -> m [b]
+    fetchResponses' (ReS r) =
+      r (\b f -> (b :) <$> fetchResponses' (f ()))
+    fetchResponses'' ::
+      (Functor m) => ReS () x (m [b]) -> m [b]
+    fetchResponses'' (ReS r) =
+      r (\b f -> fetchResponses'' (f ()))
+

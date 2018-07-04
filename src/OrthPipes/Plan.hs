@@ -11,9 +11,24 @@ module OrthPipes.Plan (
   , await
   , yield
   , exit
+
+  , (>->)
+  , each
+  , filter
+  , map
+  , drop
+  , take
+  , upfrom
+  , sieve
   ) where
 
+import Prelude hiding (filter, map, drop, take)
+
 import OrthPipes.Proxy
+
+import Data.Void
+import Data.Foldable as F
+
 
 import Control.Monad
 import Control.Monad.Trans.Class (MonadTrans (lift))
@@ -77,3 +92,51 @@ yield = respond
 exit :: Plan a' a b' b m x
 exit = Plan (\_ -> Proxy (\_ _ _ e -> e))
 
+(>->) ::
+  Plan a' a () b m r ->
+  Plan () b c' c m r ->
+  Plan a' a c' c m r
+p1 >-> p2 = Plan (\_ -> (\() -> construct p1) +>> (construct p2))
+
+
+each :: Foldable f => f a -> Plan Void () () a m ()
+each = F.foldr (\a p -> yield a >> p) (return ())
+
+filter :: (a -> Bool) -> Plan () a () a m r
+filter predicate = forever $ do
+  x <- await
+  if predicate x
+    then yield x
+    else return ()
+
+map :: (a -> b) -> Plan () a () b m r
+map f = forever $ do
+  x <- await
+  yield (f x)
+
+drop :: Int -> Plan () a () a m r
+drop = go
+  where
+    go 0 = forever (await >>= yield)
+    go n = do
+      _ <- await
+      go (n - 1)
+
+take :: Int -> Plan () a () a m r
+take n = if n == 0
+  then exit
+  else do
+    x <- await
+    yield x
+    take (n - 1)
+
+upfrom :: (Monad m) => Int -> Plan () x () Int m r
+upfrom n = do
+  yield n
+  upfrom (n + 1)
+
+sieve :: (Monad m) => Plan () Int () Int m r
+sieve = do
+  p <- await
+  yield p
+  filter (\x -> x `mod` p /= 0) >-> sieve
