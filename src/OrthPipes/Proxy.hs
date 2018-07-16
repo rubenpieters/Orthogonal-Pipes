@@ -10,6 +10,7 @@ module OrthPipes.Proxy (
 
   , runEffect
   , fetchResponses
+  , foldResponses
   ) where
 
 import Data.Void
@@ -82,19 +83,22 @@ fixMMS h = do
   h' <- h
   unMS h' fixMMS
 
-fetchResponses :: (Monad m) => Proxy x () () b m -> m [b]
-fetchResponses (Proxy proxy) = proxy
-  (\v f -> fetchResponses'' (f ()))
-  (\b f -> (b :) <$> fetchResponses' (f ()))
+fetchResponses :: (Monad m) => Proxy x () () o m -> m [o]
+fetchResponses = foldResponses (flip (:)) []
+
+foldResponses :: (Monad m) => (b -> o -> b) -> b -> Proxy x () () o m -> m b
+foldResponses combine init (Proxy proxy) = proxy
+  (\v f -> foldResponses'' (f ()))
+  (\o f -> (`combine` o) <$> foldResponses' combine (f ()))
   fixMMS
-  (return [])
+  (return init)
   where
-    fetchResponses' ::
-      (Functor m) => ReS () b (m [b]) -> m [b]
-    fetchResponses' (ReS r) =
-      r (\b f -> (b :) <$> fetchResponses' (f ()))
-    fetchResponses'' ::
-      (Functor m) => ReS () x (m [b]) -> m [b]
-    fetchResponses'' (ReS r) =
-      r (\b f -> fetchResponses'' (f ()))
+    foldResponses' ::
+      (Functor m) => (b -> o -> b) -> ReS () o (m b) -> m b
+    foldResponses' combine (ReS r) =
+      r (\o f -> (`combine` o) <$> foldResponses' combine (f ()))
+    foldResponses'' ::
+      (Functor m) => ReS () x (m b) -> m b
+    foldResponses'' (ReS r) =
+      r (\b f -> foldResponses'' (f ()))
 

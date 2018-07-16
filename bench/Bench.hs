@@ -59,23 +59,25 @@ main = do
                              , bench "iostreams"      $ nfIOf iostreams_sum sumN
                              , bench "machine"        $ nfIOf machines_sum sumN
                              , bench "vector"         $ nfIOf vector_sum sumN
+                             , bench "orth-pipes"     $ nfIOf orthpipes_sum sumN
                              ]
       , bgroup "sum-id"      [ bench "streaming"      $ nf (runIdentity . streaming_sum) sumN
                              , bench "conduit"        $ nf (runIdentity . conduit_sum) sumN
                              , bench "pipes"          $ nf (runIdentity . pipes_sum) sumN
                              , bench "machine"        $ nf (runIdentity . machines_sum) sumN
                              , bench "vector"         $ nf (runIdentity . vector_sum) sumN
+                             , bench "orth-pipes"     $ nf (runIdentity . orthpipes_sum) sumN
                              ]
       , bgroup "primes-io"   [ bench "streaming"      $ nfIOf streaming_primes primesN
-                             , bench "vector"         $ nfIOf vector_primes primesN
                              , bench "conduit"        $ nfIOf conduit_primes primesN
                              , bench "pipes"          $ nfIOf pipes_primes primesN
+                             , bench "vector"         $ nfIOf vector_primes primesN
                              , bench "orth-pipes"     $ nfIOf orthpipes_primes primesN
                              ]
       , bgroup "primes-id"   [ bench "streaming"      $ nf (runIdentity . streaming_primes) primesN
-                             , bench "vector"         $ nf (runIdentity . vector_primes) primesN
                              , bench "conduit"        $ nf (runIdentity . conduit_primes) primesN
                              , bench "pipes"          $ nf (runIdentity . pipes_primes) primesN
+                             , bench "vector"         $ nf (runIdentity . vector_primes) primesN
                              , bench "orth-pipes"     $ nf (runIdentity . orthpipes_primes) primesN
                              ]
       ]
@@ -259,6 +261,17 @@ vector_sum to = do
           $ V.map (+1)
           $ V.filter (\x -> x `mod` 2 == 0)
           $ V.enumFromTo 1 to
+  return $ checkSum n
+
+orthpipes_sum :: (Monad m) => Int -> m Int
+orthpipes_sum to = do
+  n <- foldResponses (+) 0 $ O.construct $
+                O.each [1..to]
+          O.>-> O.filter even
+          O.>-> O.map (+1)
+          O.>-> O.drop 1000
+          O.>-> O.map (+1)
+          O.>-> O.filter (\x -> x `mod` 2 == 0)
   return $ checkSum n
 
 -------------------------------------------------
