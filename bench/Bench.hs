@@ -68,16 +68,12 @@ main = do
                              , bench "vector"         $ nf (runIdentity . vector_sum) sumN
                              , bench "orth-pipes"     $ nf (runIdentity . orthpipes_sum) sumN
                              ]
-      , bgroup "primes-io"   [ bench "streaming"      $ nfIOf streaming_primes primesN
-                             , bench "conduit"        $ nfIOf conduit_primes primesN
+      , bgroup "primes-io"   [ bench "conduit"        $ nfIOf conduit_primes primesN
                              , bench "pipes"          $ nfIOf pipes_primes primesN
-                             , bench "vector"         $ nfIOf vector_primes primesN
                              , bench "orth-pipes"     $ nfIOf orthpipes_primes primesN
                              ]
-      , bgroup "primes-id"   [ bench "streaming"      $ nf (runIdentity . streaming_primes) primesN
-                             , bench "conduit"        $ nf (runIdentity . conduit_primes) primesN
+      , bgroup "primes-id"   [ bench "conduit"        $ nf (runIdentity . conduit_primes) primesN
                              , bench "pipes"          $ nf (runIdentity . pipes_primes) primesN
-                             , bench "vector"         $ nf (runIdentity . vector_primes) primesN
                              , bench "orth-pipes"     $ nf (runIdentity . orthpipes_primes) primesN
                              ]
       ]
@@ -169,7 +165,7 @@ vector_basic to = do
 
 orthpipes_basic :: (Monad m) => Int -> m Int
 orthpipes_basic to = do
-  xs <- fetchResponses $ O.construct $
+  xs <- O.fetchResponses $
                 O.each [1..to]
           O.>-> O.filter even
           O.>-> O.map (+1)
@@ -265,7 +261,7 @@ vector_sum to = do
 
 orthpipes_sum :: (Monad m) => Int -> m Int
 orthpipes_sum to = do
-  n <- foldResponses (+) 0 $ O.construct $
+  n <- O.foldResponses (+) 0 $
                 O.each [1..to]
           O.>-> O.filter even
           O.>-> O.map (+1)
@@ -275,8 +271,10 @@ orthpipes_sum to = do
   return $ checkSum n
 
 -------------------------------------------------
--- pipes benchmark
+-- primes benchmark
 -------------------------------------------------
+-- only conduit/pipes/orth-pipes since this
+-- benchmark is meant to bench nested merging
 
 primesN :: Int
 primesN = 10000
@@ -287,20 +285,6 @@ list_sieve [] = []
 
 primesResult :: Int
 primesResult = Prelude.last $ Prelude.take primesN $ list_sieve [2..]
-
-streaming_sieve :: (Monad m) => Stream (Of Int) m () -> Stream (Of Int) m ()
-streaming_sieve str = case str of
-      Step fas@(p :> _) -> Step (fmap (streaming_sieve . Str.filter (\x -> x `mod` p /= 0)) fas)
-      Effect m -> Effect (fmap streaming_sieve m)
-      Return _ -> return ()
-
-streaming_primes :: (Monad m) => Int -> m Int
-streaming_primes n = do
-  ps <- Str.toList_ $
-            Str.enumFrom 2
-          & streaming_sieve
-          & Str.take n
-  return $ checkPrimes (Prelude.last ps)
 
 conduit_sieve :: (Monad m) => ConduitT Int Int m ()
 conduit_sieve = do
@@ -334,25 +318,9 @@ pipes_primes n = do
           >-> P.take n
   return $ checkPrimes (Prelude.last xs)
 
-vector_sieve :: (Monad m) => V.Stream m Int -> m (V.Stream m Int)
-vector_sieve str = do
-  p <- V.head str
-  let xs = V.tail str
-  let predicate x = x `mod` p /= 0
-  nextPrimes <- vector_sieve (V.filter predicate xs)
-  return $ p `V.cons` nextPrimes
-
-vector_primes :: (Monad m) => Int -> m Int
-vector_primes n = do
-  ps' <-   V.fromList [2..]
-         & vector_sieve
-  ps <-    V.take n ps'
-         & V.toList
-  return $ checkPrimes (Prelude.last ps)
-
 orthpipes_primes :: (Monad m) => Int -> m Int
 orthpipes_primes n = do
-  ps <- fetchResponses $ O.construct $
+  ps <- O.fetchResponses $
                 O.upfrom 2
           O.>-> O.sieve
           O.>-> O.take n

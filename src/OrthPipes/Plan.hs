@@ -4,7 +4,7 @@ module OrthPipes.Plan (
     Plan(..)
   , construct
   , repeatedly
-  , deconstruct
+  , lift
 
   , respond
   , request
@@ -13,7 +13,15 @@ module OrthPipes.Plan (
   , exit
 
   , (>->)
+  , (+>>)
+  , for
+  , (>~)
   , each
+
+  , runEffect
+  , fetchResponses
+  , foldResponses
+
   , filter
   , map
   , drop
@@ -55,52 +63,96 @@ instance MonadTrans (Plan a' a b' b) where
         m (fmap ((\proxy -> MS (\m' -> unProxy proxy req res m' e)) . k) mr)
       ))
 
+-- construct a plan
 construct :: Plan a' a b' b m x -> Proxy a' a b' b m
 construct (Plan plan) = plan (\_ -> Proxy (\_ _ _ e -> e))
 
+-- construct repeated execution of a plan
 repeatedly :: Plan a' a b' b m x -> Proxy a' a b' b m
 repeatedly plan = construct (forever plan)
 
-deconstruct :: Proxy a' a b' (Either x b) m -> Plan a' a b' b m x
-deconstruct proxy = Plan (\k ->
-  Proxy (\req res m e ->
-    let aux res' xorb fb' = case xorb of
-          Left x -> unProxy (k x) req res' m e
-          Right b -> res' b ((\(ReS r) -> ReS (r . aux)) . fb')
-    in
-      unProxy proxy req (aux res) m e
-  ))
+-- operations
 
+-- respond
 respond :: a -> Plan x' x a' a m a'
 respond a = Plan (\k ->
   Proxy (\req res m e -> res a (\x ->
     ReS (\res' -> unProxy (k x) req res' m e))
   ))
 
+-- request
 request :: a' -> Plan a' a y' y m a
 request a' = Plan (\k ->
   Proxy (\req res m e -> req a' (\x ->
     ReS (\req' -> unProxy (k x) req' res m e))
   ))
 
+-- await
 await :: Plan () a y' y m a
 await = request ()
 
-yield :: a -> Plan x' x a' a m a'
+-- yield
+yield :: a -> Plan x' x () a m ()
 yield = respond
 
+-- the exit operation aborts the pipe without returning a value
 exit :: Plan a' a b' b m x
 exit = Plan (\_ -> Proxy (\_ _ _ e -> e))
+
+-- merge plans
+
+-- these merges have no identity element since returns are
+-- not interpreted as returns
 
 (>->) ::
   Plan a' a () b m r ->
   Plan () b c' c m r ->
   Plan a' a c' c m r
-p1 >-> p2 = Plan (\_ -> (\() -> construct p1) +>> (construct p2))
+p1 >-> p2 = (\() -> p1) +>> p2
 
+(+>>) ::
+  (b' -> Plan a' a b' b m r) ->
+  Plan b' b c' c m r ->
+  Plan a' a c' c m r
+p1 +>> p2 = Plan (\_ -> (construct . p1) ++>> construct p2)
 
+-- a restricted form of pipes for
+-- replace each yield in p with f
+for ::
+  Plan x' x () b m () ->
+  (b -> Plan () b c' c m ()) ->
+  Plan x' x c' c m ()
+for p f = (\() -> p) +>> go
+  where
+    go = do a <- await; f a; go
+
+-- a restricted form of pipes >~
+-- replace each await in q with p
+(>~) ::
+  Plan a' a () b m b ->
+  Plan () b c' c m () ->
+  Plan a' a c' c m ()
+p >~ q = (\() -> go) +>> q
+  where
+    go = do a <- p; yield a; go
+
+-- yield each element of a list
 each :: Foldable f => f a -> Plan Void () () a m ()
 each = F.foldr (\a p -> yield a >> p) (return ())
+
+-- run all effects
+runEffect :: (Monad m) => Plan Void () () Void m () -> m ()
+runEffect = OrthPipes.Proxy.runEffectPr . construct
+
+-- fetch all output values into a list
+fetchResponses :: (Monad m) => Plan x () () o m () -> m [o]
+fetchResponses = OrthPipes.Proxy.fetchResponsesPr . construct
+
+-- fold over all output values
+foldResponses :: (Monad m) => (b -> o -> b) -> b -> Plan x () () o m () -> m b
+foldResponses combine init = OrthPipes.Proxy.foldResponsesPr combine init . construct
+
+-- utility functions to create primes
 
 filter :: (a -> Bool) -> Plan () a () a m r
 filter predicate = forever $ do
