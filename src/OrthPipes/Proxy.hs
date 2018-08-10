@@ -2,7 +2,6 @@
 
 module OrthPipes.Proxy (
     ReS(..)
-  , MS(..)
 
   , Proxy(..)
   , (>++>)
@@ -22,37 +21,30 @@ newtype ReS i o a = ReS
   { unReS :: (o -> (i -> ReS i o a) -> a) -> a
   }
 
--- restricted scott encoding of a lifted effect
-newtype MS m a = MS
-  { unMS :: (m (MS m a) -> a) -> a
-  }
-
 -- orthogonal encoding of pipes
 newtype Proxy a' a b' b m = Proxy
   { unProxy :: forall r.
-      (a' -> (a -> ReS a a' r) -> r) -> -- request
-      (b -> (b' -> ReS b' b r) -> r) -> -- respond
-      (m (MS m r) -> r) ->              -- lift m
-      r ->                              -- exit
-      r
+      (a' -> (a -> ReS a a' (m r)) -> m r) -> -- request
+      (b -> (b' -> ReS b' b (m r)) -> m r) -> -- respond
+      m r ->                              -- exit
+      m r
   }
+
 -- merge helper functions
 
 mergeLProxy ::
-  (a' -> (a -> ReS a a' r) -> r) ->
-  (m (MS m r) -> r) ->
-  r ->
+  (a' -> (a -> ReS a a' (m r)) -> m r) ->
+  m r ->
   Proxy a' a b' b m ->
-  ReS b' b r
-mergeLProxy req m e p = ReS (\res -> unProxy p req res m e)
+  ReS b' b (m r)
+mergeLProxy req e p = ReS (\res -> unProxy p req res e)
 
 mergeRProxy ::
-  (b -> (b' -> ReS b' b r) -> r) ->
-  (m (MS m r) -> r) ->
-  r ->
+  (b -> (b' -> ReS b' b (m r)) -> m r) ->
+  m r ->
   Proxy a' a b' b m ->
-  ReS a a' r
-mergeRProxy res m e p = ReS (\req -> unProxy p req res m e)
+  ReS a a' (m r)
+mergeRProxy res e p = ReS (\req -> unProxy p req res e)
 
 mergeReS :: ReS i o a -> (o -> ReS o i a) -> a
 mergeReS = unsafeCoerce
@@ -64,16 +56,16 @@ mergeReS = unsafeCoerce
   (b' -> Proxy a' a b' b m) ->
   Proxy b' b c' c m ->
   Proxy a' a c' c m
-fp ++>> q = Proxy (\req res m e ->
-    mergeReS (mergeRProxy res m e q) (mergeLProxy req m e . fp)
+fp ++>> q = Proxy (\req res e ->
+    mergeReS (mergeRProxy res e q) (mergeLProxy req e . fp)
   )
 
 -- equivalent to request a' >>= respond
 cat :: a' -> Proxy a' a a' a m
-cat a' = Proxy (\req res m e ->
+cat a' = Proxy (\req res e ->
   req a' (\a -> ReS (\req' ->
   res a (\b' -> ReS (\res' ->
-  unProxy (cat b') req' res' m e
+  unProxy (cat b') req' res' e
   )))))
 
 -- TODO: check if `cat` is the identity element of `>++>`
@@ -82,12 +74,6 @@ cat a' = Proxy (\req res m e ->
   (_c' -> Proxy b' b c' c m) ->
   (_c' -> Proxy a' a c' c m)
 (fb' >++> fc') c' = fb' ++>> fc' c'
-
--- join layers of MS together
-fixMMS :: (Monad m) => m (MS m (m a)) -> m a
-fixMMS h = do
-  h' <- h
-  unMS h' fixMMS
 
 -- run all effects
 runEffectPr :: (Monad m) => Proxy Void () () Void m -> m ()
@@ -102,7 +88,6 @@ foldResponsesPr :: (Monad m) => (b -> o -> b) -> b -> Proxy x () () o m -> m b
 foldResponsesPr combine init (Proxy proxy) = proxy
   (\v f -> foldResponses'' (f ()))
   (\o f -> (`combine` o) <$> foldResponses' combine (f ()))
-  fixMMS
   (return init)
   where
     foldResponses' ::

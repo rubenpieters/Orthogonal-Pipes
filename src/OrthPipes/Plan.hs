@@ -58,14 +58,14 @@ instance Monad (Plan a' a b' b m) where
   p >>= f = Plan (\k -> unPlan p (\x -> unPlan (f x) k))
 
 instance MonadTrans (Plan a' a b' b) where
-    lift mr = Plan (\k ->
-      Proxy (\req res m e ->
-        m (fmap ((\proxy -> MS (\m' -> unProxy proxy req res m' e)) . k) mr)
-      ))
+  lift ma = Plan (\k -> Proxy (\req res e ->
+    do a <- ma
+       unProxy (k a) req res e
+    ))
 
 -- construct a plan
 construct :: Plan a' a b' b m x -> Proxy a' a b' b m
-construct (Plan plan) = plan (\_ -> Proxy (\_ _ _ e -> e))
+construct (Plan plan) = plan (\_ -> Proxy (\_ _ e -> e))
 
 -- construct repeated execution of a plan
 repeatedly :: Plan a' a b' b m x -> Proxy a' a b' b m
@@ -76,15 +76,15 @@ repeatedly plan = construct (forever plan)
 -- respond
 respond :: a -> Plan x' x a' a m a'
 respond a = Plan (\k ->
-  Proxy (\req res m e -> res a (\x ->
-    ReS (\res' -> unProxy (k x) req res' m e))
+  Proxy (\req res e -> res a (\x ->
+    ReS (\res' -> unProxy (k x) req res' e))
   ))
 
 -- request
 request :: a' -> Plan a' a y' y m a
 request a' = Plan (\k ->
-  Proxy (\req res m e -> req a' (\x ->
-    ReS (\req' -> unProxy (k x) req' res m e))
+  Proxy (\req res e -> req a' (\x ->
+    ReS (\req' -> unProxy (k x) req' res e))
   ))
 
 -- await
@@ -97,7 +97,7 @@ yield = respond
 
 -- the exit operation aborts the pipe without returning a value
 exit :: Plan a' a b' b m x
-exit = Plan (\_ -> Proxy (\_ _ _ e -> e))
+exit = Plan (\_ -> Proxy (\_ _ e -> e))
 
 -- merge plans
 
