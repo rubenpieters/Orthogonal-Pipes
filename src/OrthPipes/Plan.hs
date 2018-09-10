@@ -43,7 +43,7 @@ import Control.Monad.Trans.Class (MonadTrans (lift))
 
 newtype Plan a' a b' b m x = Plan
   { unPlan ::
-      (x -> Proxy a' a b' b m) -> Proxy a' a b' b m
+      (x -> ProxyRep a' a b' b m) -> ProxyRep a' a b' b m
   }
 
 instance Functor (Plan a' a b' b m) where
@@ -58,34 +58,32 @@ instance Monad (Plan a' a b' b m) where
   p >>= f = Plan (\k -> unPlan p (\x -> unPlan (f x) k))
 
 instance MonadTrans (Plan a' a b' b) where
-  lift ma = Plan (\k -> Proxy (\req res e ->
+  lift ma = Plan (\k req res e ->
     do a <- ma
-       unProxy (k a) req res e
-    ))
+       k a req res e
+    )
 
 -- construct a plan
-construct :: Plan a' a b' b m x -> Proxy a' a b' b m
-construct (Plan plan) = plan (\_ -> Proxy (\_ _ e -> e))
+construct :: Plan a' a b' b m x -> ProxyRep a' a b' b m
+construct (Plan plan) = plan (\_ _ _ e -> e)
 
 -- construct repeated execution of a plan
-repeatedly :: Plan a' a b' b m x -> Proxy a' a b' b m
+repeatedly :: Plan a' a b' b m x -> ProxyRep a' a b' b m
 repeatedly plan = construct (forever plan)
 
 -- operations
 
 -- respond
 respond :: a -> Plan x' x a' a m a'
-respond a = Plan (\k ->
-  Proxy (\req res e -> res a (\x ->
-    ReS (\res' -> unProxy (k x) req res' e))
-  ))
+respond a = Plan (\k req res e ->
+    unPCPar res a (PCPar (\x res' -> k x req res' e))
+  )
 
 -- request
 request :: a' -> Plan a' a y' y m a
-request a' = Plan (\k ->
-  Proxy (\req res e -> req a' (\x ->
-    ReS (\req' -> unProxy (k x) req' res e))
-  ))
+request a' = Plan (\k req res e ->
+    unPCPar req a' (PCPar (\x req' -> k x req' res e))
+  )
 
 -- await
 await :: Plan () a y' y m a
@@ -97,7 +95,7 @@ yield = respond
 
 -- the exit operation aborts the pipe without returning a value
 exit :: Plan a' a b' b m x
-exit = Plan (\_ -> Proxy (\_ _ e -> e))
+exit = Plan (\_ _ _ e -> e)
 
 -- merge plans
 
@@ -142,15 +140,15 @@ each = F.foldr (\a p -> yield a >> p) (return ())
 
 -- run all effects
 runEffect :: (Monad m) => Plan Void () () Void m () -> m ()
-runEffect = OrthPipes.Proxy.runEffectPr . construct
+runEffect x = OrthPipes.Proxy.runEffectPr (construct x)
 
 -- fetch all output values into a list
 fetchResponses :: (Monad m) => Plan x () () o m () -> m [o]
-fetchResponses = OrthPipes.Proxy.fetchResponsesPr . construct
+fetchResponses x = OrthPipes.Proxy.fetchResponsesPr (construct x)
 
 -- fold over all output values
 foldResponses :: (Monad m) => (b -> o -> b) -> b -> Plan x () () o m () -> m b
-foldResponses combine init = OrthPipes.Proxy.foldResponsesPr combine init . construct
+foldResponses combine b x = OrthPipes.Proxy.foldResponsesPr combine b (construct x)
 
 -- utility functions to create primes
 

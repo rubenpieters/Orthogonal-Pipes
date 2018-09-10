@@ -1,9 +1,9 @@
 {-# LANGUAGE RankNTypes #-}
 
 module OrthPipes.Proxy (
-    ReS(..)
+    PCPar(..)
 
-  , Proxy(..)
+  , ProxyRep
   , (>++>)
   , (++>>)
 
@@ -14,88 +14,50 @@ module OrthPipes.Proxy (
 
 import Data.Void
 
-import Unsafe.Coerce
+newtype PCPar i o a = PCPar { unPCPar :: o -> PCPar o i a -> a }
 
--- restricted Scott encoding of request/respond
-newtype ReS i o a = ReS
-  { unReS :: (o -> (i -> ReS i o a) -> a) -> a
-  }
+type ProxyRep a' a b' b m = forall r.
+  PCPar a a' (m r) ->  -- request
+  PCPar b' b (m r) ->  -- respond
+  m r ->               -- exit
+  m r
 
--- orthogonal encoding of pipes
-newtype Proxy a' a b' b m = Proxy
-  { unProxy :: forall r.
-      (a' -> (a -> ReS a a' (m r)) -> m r) -> -- request
-      (b -> (b' -> ReS b' b (m r)) -> m r) -> -- respond
-      m r ->                              -- exit
-      m r
-  }
-
--- merge helper functions
-
-mergeLProxy ::
-  (a' -> (a -> ReS a a' (m r)) -> m r) ->
-  m r ->
-  Proxy a' a b' b m ->
-  ReS b' b (m r)
-mergeLProxy req e p = ReS (\res -> unProxy p req res e)
-
-mergeRProxy ::
-  (b -> (b' -> ReS b' b (m r)) -> m r) ->
-  m r ->
-  Proxy a' a b' b m ->
-  ReS a a' (m r)
-mergeRProxy res e p = ReS (\req -> unProxy p req res e)
-
-mergeReS :: ReS i o a -> (o -> ReS o i a) -> a
-mergeReS = unsafeCoerce
--- less efficient implementation
---mergeReS (ReS res) f = res (mergeReS . f)
-
--- efficient orthogonal pipes merge
+-- efficient +>> implementation for ProxyRep
 (++>>) ::
-  (b' -> Proxy a' a b' b m) ->
-  Proxy b' b c' c m ->
-  Proxy a' a c' c m
-fp ++>> q = Proxy (\req res e ->
-    mergeReS (mergeRProxy res e q) (mergeLProxy req e . fp)
-  )
+  (b' -> ProxyRep a' a b' b m) ->
+  ProxyRep b' b c' c m ->
+  ProxyRep a' a c' c m
+fp ++>> q = \req res e -> q (PCPar (\b' res' -> fp b' req res' e)) res e
 
--- equivalent to request a' >>= respond
-cat :: a' -> Proxy a' a a' a m
-cat a' = Proxy (\req res e ->
-  req a' (\a -> ReS (\req' ->
-  res a (\b' -> ReS (\res' ->
-  unProxy (cat b') req' res' e
-  )))))
-
--- TODO: check if `cat` is the identity element of `>++>`
 (>++>) ::
-  ( b' -> Proxy a' a b' b m) ->
-  (_c' -> Proxy b' b c' c m) ->
-  (_c' -> Proxy a' a c' c m)
+  ( b' -> ProxyRep a' a b' b m) ->
+  (_c' -> ProxyRep b' b c' c m) ->
+  (_c' -> ProxyRep a' a c' c m)
 (fb' >++> fc') c' = fb' ++>> fc' c'
 
+-- fold ProxyRep
+foldProxyRep ::
+  (a' -> (a -> (m r)) -> (m r)) ->
+  (b -> (b' -> (m r)) -> (m r)) ->
+  m r ->
+  ProxyRep a' a b' b m -> m r
+foldProxyRep req res e proxy = proxy (fromAlg req) (fromAlg res) e
+  where
+  fromAlg :: (o -> (i -> r) -> r) -> PCPar i o r
+  fromAlg alg = PCPar (\o (PCPar r) -> alg o (\i -> r i (fromAlg alg)))
+
 -- run all effects
-runEffectPr :: (Monad m) => Proxy Void () () Void m -> m ()
+runEffectPr :: (Monad m) => ProxyRep Void () () Void m -> m ()
 runEffectPr = foldResponsesPr (\_ _ -> ()) ()
 
 -- fetch all output values into a list
-fetchResponsesPr :: (Monad m) => Proxy x () () o m -> m [o]
+fetchResponsesPr :: (Monad m) => ProxyRep x () () o m -> m [o]
 fetchResponsesPr = foldResponsesPr (flip (:)) []
 
 -- fold over all output values
-foldResponsesPr :: (Monad m) => (b -> o -> b) -> b -> Proxy x () () o m -> m b
-foldResponsesPr combine init (Proxy proxy) = proxy
-  (\v f -> foldResponses'' (f ()))
-  (\o f -> (`combine` o) <$> foldResponses' combine (f ()))
-  (return init)
-  where
-    foldResponses' ::
-      (Functor m) => (b -> o -> b) -> ReS () o (m b) -> m b
-    foldResponses' combine (ReS r) =
-      r (\o f -> (`combine` o) <$> foldResponses' combine (f ()))
-    foldResponses'' ::
-      (Functor m) => ReS () x (m b) -> m b
-    foldResponses'' (ReS r) =
-      r (\b f -> foldResponses'' (f ()))
-
+foldResponsesPr :: (Monad m) => (b -> o -> b) -> b -> ProxyRep x () () o m -> m b
+foldResponsesPr combine b proxy = foldProxyRep
+  (\_ f -> f ())
+  (\o f -> (`combine` o) <$> (f ()))
+  (return b)
+  proxy
