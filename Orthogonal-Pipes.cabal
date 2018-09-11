@@ -25,6 +25,7 @@ Library
                      , semigroups
   exposed-modules:     OrthPipes.Plan
                      , OrthPipes.Proxy
+                     , OrthPipes.Prelude
                      , OrthPipes.Tutorial
   GHC-Options: -O2 -Wall
 

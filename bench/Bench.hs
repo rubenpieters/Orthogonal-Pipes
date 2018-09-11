@@ -18,6 +18,7 @@ import qualified Data.Machine as M
 import           Data.Machine.Runner  (foldlT)
 
 import qualified OrthPipes.Plan as O
+import qualified OrthPipes.Prelude as O
 import           OrthPipes.Proxy
 
 import           Control.Exception
@@ -318,11 +319,17 @@ pipes_primes n = do
           >-> P.take n
   return $ checkPrimes (Prelude.last xs)
 
+orthpipes_sieve :: (Monad m) => O.Plan () Int () Int m r
+orthpipes_sieve = do
+  p <- O.await
+  O.yield p
+  O.filter (\x -> x `mod` p /= 0) O.>-> orthpipes_sieve
+
 orthpipes_primes :: (Monad m) => Int -> m Int
 orthpipes_primes n = do
   ps <- O.fetchResponses $
                 O.upfrom 2
-          O.>-> O.sieve
+          O.>-> orthpipes_sieve
           O.>-> O.take n
   return $ checkPrimes (Prelude.last ps)
 

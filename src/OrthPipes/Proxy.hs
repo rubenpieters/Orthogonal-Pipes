@@ -10,6 +10,7 @@ module OrthPipes.Proxy (
   , runEffectPr
   , fetchResponsesPr
   , foldResponsesPr
+  , foldProxyRep
   ) where
 
 import Data.Void

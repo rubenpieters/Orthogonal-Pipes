@@ -21,22 +21,12 @@ module OrthPipes.Plan (
   , runEffect
   , fetchResponses
   , foldResponses
-
-  , filter
-  , map
-  , drop
-  , take
-  , upfrom
-  , sieve
   ) where
-
-import Prelude hiding (filter, map, drop, take)
 
 import OrthPipes.Proxy
 
 import Data.Void
 import Data.Foldable as F
-
 
 import Control.Monad
 import Control.Monad.Trans.Class (MonadTrans (lift))
@@ -149,44 +139,3 @@ fetchResponses x = OrthPipes.Proxy.fetchResponsesPr (construct x)
 -- fold over all output values
 foldResponses :: (Monad m) => (b -> o -> b) -> b -> Plan x () () o m () -> m b
 foldResponses combine b x = OrthPipes.Proxy.foldResponsesPr combine b (construct x)
-
--- utility functions to create primes
-
-filter :: (a -> Bool) -> Plan () a () a m r
-filter predicate = forever $ do
-  x <- await
-  if predicate x
-    then yield x
-    else return ()
-
-map :: (a -> b) -> Plan () a () b m r
-map f = forever $ do
-  x <- await
-  yield (f x)
-
-drop :: Int -> Plan () a () a m r
-drop = go
-  where
-    go 0 = forever (await >>= yield)
-    go n = do
-      _ <- await
-      go (n - 1)
-
-take :: Int -> Plan () a () a m r
-take n = if n == 0
-  then exit
-  else do
-    x <- await
-    yield x
-    take (n - 1)
-
-upfrom :: (Monad m) => Int -> Plan () x () Int m r
-upfrom n = do
-  yield n
-  upfrom (n + 1)
-
-sieve :: (Monad m) => Plan () Int () Int m r
-sieve = do
-  p <- await
-  yield p
-  filter (\x -> x `mod` p /= 0) >-> sieve
