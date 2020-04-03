@@ -39,13 +39,13 @@ main = do
   print ("sumResult " ++ show sumResult)
   print ("primesResult " ++ show primesResult)
   defaultMain
-      [ bgroup "length-io"   [ bench "streaming"      $ nfIOf streaming_basic basicN
-                             , bench "conduit"        $ nfIOf conduit_basic basicN
-                             , bench "pipes"          $ nfIOf pipes_basic basicN
-                             , bench "iostreams"      $ nfIOf iostreams_basic basicN
-                             , bench "machine"        $ nfIOf machines_basic basicN
-                             , bench "vector"         $ nfIOf vector_basic basicN
-                             , bench "orth-pipes"     $ nfIOf orthpipes_basic basicN
+      [ bgroup "length-io"   [ bench "streaming"      $ nfAppIO streaming_basic basicN
+                             , bench "conduit"        $ nfAppIO conduit_basic basicN
+                             , bench "pipes"          $ nfAppIO pipes_basic basicN
+                             , bench "iostreams"      $ nfAppIO iostreams_basic basicN
+                             , bench "machine"        $ nfAppIO machines_basic basicN
+                             , bench "vector"         $ nfAppIO vector_basic basicN
+                             , bench "orth-pipes"     $ nfAppIO orthpipes_basic basicN
                              ]
       , bgroup "length-id"   [ bench "streaming"      $ nf (runIdentity . streaming_basic) basicN
                              , bench "conduit"        $ nf (runIdentity . conduit_basic) basicN
@@ -54,13 +54,13 @@ main = do
                              , bench "vector"         $ nf (runIdentity . vector_basic) basicN
                              , bench "orth-pipes"     $ nf (runIdentity . orthpipes_basic) basicN
                              ]
-      , bgroup "sum-io"      [ bench "streaming"      $ nfIOf streaming_sum sumN
-                             , bench "conduit"        $ nfIOf conduit_sum sumN
-                             , bench "pipes"          $ nfIOf pipes_sum sumN
-                             , bench "iostreams"      $ nfIOf iostreams_sum sumN
-                             , bench "machine"        $ nfIOf machines_sum sumN
-                             , bench "vector"         $ nfIOf vector_sum sumN
-                             , bench "orth-pipes"     $ nfIOf orthpipes_sum sumN
+      , bgroup "sum-io"      [ bench "streaming"      $ nfAppIO streaming_sum sumN
+                             , bench "conduit"        $ nfAppIO conduit_sum sumN
+                             , bench "pipes"          $ nfAppIO pipes_sum sumN
+                             , bench "iostreams"      $ nfAppIO iostreams_sum sumN
+                             , bench "machine"        $ nfAppIO machines_sum sumN
+                             , bench "vector"         $ nfAppIO vector_sum sumN
+                             , bench "orth-pipes"     $ nfAppIO orthpipes_sum sumN
                              ]
       , bgroup "sum-id"      [ bench "streaming"      $ nf (runIdentity . streaming_sum) sumN
                              , bench "conduit"        $ nf (runIdentity . conduit_sum) sumN
@@ -69,9 +69,9 @@ main = do
                              , bench "vector"         $ nf (runIdentity . vector_sum) sumN
                              , bench "orth-pipes"     $ nf (runIdentity . orthpipes_sum) sumN
                              ]
-      , bgroup "primes-io"   [ bench "conduit"        $ nfIOf conduit_primes primesN
-                             , bench "pipes"          $ nfIOf pipes_primes primesN
-                             , bench "orth-pipes"     $ nfIOf orthpipes_primes primesN
+      , bgroup "primes-io"   [ bench "conduit"        $ nfAppIO conduit_primes primesN
+                             , bench "pipes"          $ nfAppIO pipes_primes primesN
+                             , bench "orth-pipes"     $ nfAppIO orthpipes_primes primesN
                              ]
       , bgroup "primes-id"   [ bench "conduit"        $ nf (runIdentity . conduit_primes) primesN
                              , bench "pipes"          $ nf (runIdentity . pipes_primes) primesN

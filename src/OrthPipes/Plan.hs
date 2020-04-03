@@ -14,9 +14,10 @@ module OrthPipes.Plan (
 
   , (>->)
   , (+>>)
-  , for
   , (>~)
   , each
+  , cat
+  , for
 
   , runEffect
   , fetchResponses
@@ -31,9 +32,12 @@ import Data.Foldable as F
 import Control.Monad
 import Control.Monad.Trans.Class (MonadTrans (lift))
 
+import Data.IORef
+import System.IO.Unsafe
+
 newtype Plan a' a b' b m x = Plan
-  { unPlan ::
-      (x -> ProxyRep a' a b' b m) -> ProxyRep a' a b' b m
+  { unPlan :: forall r.
+      (x -> ProxyRep a' a b' b m r) -> ProxyRep a' a b' b m r
   }
 
 instance Functor (Plan a' a b' b m) where
@@ -48,44 +52,46 @@ instance Monad (Plan a' a b' b m) where
   p >>= f = Plan (\k -> unPlan p (\x -> unPlan (f x) k))
 
 instance MonadTrans (Plan a' a b' b) where
-  lift ma = Plan (\k req res e ->
-    do a <- ma
-       k a req res e
-    )
+  lift ma = Plan (\k req res m e -> m (fmap ((\proxy -> proxy req res m e) . k) ma))
 
 -- construct a plan
-construct :: Plan a' a b' b m x -> ProxyRep a' a b' b m
-construct (Plan plan) = plan (\_ _ _ e -> e)
+construct :: Plan a' a b' b m x -> ProxyRep a' a b' b m r
+construct (Plan plan) = plan (\_ _ _ _ e -> e)
 
 -- construct repeated execution of a plan
-repeatedly :: Plan a' a b' b m x -> ProxyRep a' a b' b m
+repeatedly :: Plan a' a b' b m x -> ProxyRep a' a b' b m r
 repeatedly plan = construct (forever plan)
 
 -- operations
 
 -- respond
+{-# INLINE[1] respond #-}
 respond :: a -> Plan x' x a' a m a'
-respond a = Plan (\k req res e ->
-    unPCPar res a (PCPar (\x res' -> k x req res' e))
+respond a = Plan (\k req res m e ->
+    unPCPar res a (PCPar (\x res' -> k x req res' m e))
   )
 
 -- request
+{-# INLINE request #-}
 request :: a' -> Plan a' a y' y m a
-request a' = Plan (\k req res e ->
-    unPCPar req a' (PCPar (\x req' -> k x req' res e))
+request a' = Plan (\k req res m e ->
+    unPCPar req a' (PCPar (\x req' -> k x req' res m e))
   )
 
 -- await
+{-# INLINE[1] await #-}
 await :: Plan () a y' y m a
 await = request ()
 
 -- yield
+{-# INLINE[1] yield #-}
 yield :: a -> Plan x' x () a m ()
 yield = respond
 
 -- the exit operation aborts the pipe without returning a value
+{-# INLINE exit #-}
 exit :: Plan a' a b' b m x
-exit = Plan (\_ _ _ e -> e)
+exit = Plan (\_ _ _ _ e -> e)
 
 -- merge plans
 
@@ -97,22 +103,14 @@ exit = Plan (\_ _ _ e -> e)
   Plan () b c' c m r ->
   Plan a' a c' c m r
 p1 >-> p2 = (\() -> p1) +>> p2
+{-# INLINE[1] (>->) #-}
 
 (+>>) ::
   (b' -> Plan a' a b' b m r) ->
   Plan b' b c' c m r ->
   Plan a' a c' c m r
 p1 +>> p2 = Plan (\_ -> (construct . p1) ++>> construct p2)
-
--- a restricted form of pipes for
--- replace each yield in p with f
-for ::
-  Plan x' x () b m () ->
-  (b -> Plan () b c' c m ()) ->
-  Plan x' x c' c m ()
-for p f = (\() -> p) +>> go
-  where
-    go = do a <- await; f a; go
+{-# INLINE[1] (+>>) #-}
 
 -- a restricted form of pipes >~
 -- replace each await in q with p
@@ -123,9 +121,10 @@ for p f = (\() -> p) +>> go
 p >~ q = (\() -> go) +>> q
   where
     go = do a <- p; yield a; go
+{-# INLINE[1] (>~) #-}
 
 -- yield each element of a list
-each :: Foldable f => f a -> Plan Void () () a m ()
+each :: Foldable f => f a -> Plan x' x () a m ()
 each = F.foldr (\a p -> yield a >> p) (return ())
 
 -- run all effects
@@ -139,3 +138,21 @@ fetchResponses x = OrthPipes.Proxy.fetchResponsesPr (construct x)
 -- fold over all output values
 foldResponses :: (Monad m) => (b -> o -> b) -> b -> Plan x () () o m () -> m b
 foldResponses combine b x = OrthPipes.Proxy.foldResponsesPr combine b (construct x)
+
+-- yield every awaited value
+cat :: Monad m => Plan () a () a m r
+cat = forever $ do
+    x <- await
+    yield x
+{-# INLINE[1] cat #-}
+
+-- a restricted form of pipes for
+-- replace each yield in p with f
+for ::
+  Plan x' x () b m () ->
+  (b -> Plan () b c' c m ()) ->
+  Plan x' x c' c m ()
+for p f = (\() -> p) +>> go
+  where
+    go = do a <- await; f a; go
+{-# INLINEABLE[0] for #-}
